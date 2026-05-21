@@ -22,7 +22,6 @@ export function ManagerLayout({ children }: ManagerLayoutProps) {
     { label: 'الخدام', path: '/dashboard/teachers' },
     { label: 'المخدومين', path: '/dashboard/students' },
     { label: 'التقارير', path: '/dashboard/reports' },
-    { label: 'الحسابات', path: '/dashboard/accounts' },
   ];
 
   return (

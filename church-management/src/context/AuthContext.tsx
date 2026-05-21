@@ -7,13 +7,10 @@ interface AuthContextType {
   loading: boolean;
   signIn: (username: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
-  signUp: (username: string, password: string, fullName: string, role: string) => Promise<void>;
+  signUp: (username: string, password: string, fullName: string, role: string, churchName?: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-// Helper function to convert username to email for Supabase Auth
-const getUsernameEmail = (username: string) => `${username.toLowerCase()}@internal.church`;
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<any>(null);
@@ -21,31 +18,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check current session
+    // Check if user is logged in (from localStorage)
     const checkAuth = async () => {
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        setUser(session?.user || null);
-
-        if (session?.user) {
-          try {
-            const { data, error } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', session.user.id)
-              .single();
-            
-            if (!error && data) {
-              setProfile(data);
-            } else {
-              console.warn('Profile not found, but user is logged in');
-              setProfile(null);
-            }
-          } catch (err) {
-            console.error('Error fetching profile:', err);
-            setProfile(null);
+        const userId = localStorage.getItem('userId');
+        if (userId) {
+          const { data, error } = await supabase
+            .from('auth_users')
+            .select('*')
+            .eq('id', userId)
+            .single();
+          
+          if (!error && data) {
+            setUser({ id: data.id });
+            setProfile(data);
+          } else {
+            localStorage.removeItem('userId');
           }
         }
       } catch (error) {
@@ -56,65 +44,69 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     checkAuth();
-
-    // Subscribe to auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_, session) => {
-      setUser(session?.user || null);
-
-      if (session?.user) {
-        try {
-          const { data } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .single();
-          setProfile(data || null);
-        } catch (err) {
-          console.error('Error fetching profile on auth change:', err);
-          setProfile(null);
-        }
-      } else {
-        setProfile(null);
-      }
-    });
-
-    return () => {
-      subscription?.unsubscribe();
-    };
   }, []);
 
   const signIn = async (username: string, password: string) => {
-    const email = getUsernameEmail(username);
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (error) throw error;
+    try {
+      // Query user from custom auth table
+      const { data, error } = await supabase
+        .from('auth_users')
+        .select('*')
+        .eq('username', username.toLowerCase())
+        .single();
+
+      if (error || !data) {
+        throw new Error('اسم المستخدم غير صحيح');
+      }
+
+      // Simple password check (in production, use bcrypt comparison on server)
+      if (data.password_hash !== password) {
+        throw new Error('كلمة المرور غير صحيحة');
+      }
+
+      // Store user in state and localStorage
+      setUser({ id: data.id });
+      setProfile(data);
+      localStorage.setItem('userId', data.id);
+    } catch (err: any) {
+      throw new Error(err.message || 'فشل تسجيل الدخول');
+    }
   };
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    setUser(null);
+    setProfile(null);
+    localStorage.removeItem('userId');
   };
 
-  const signUp = async (username: string, password: string, fullName: string, role: string) => {
-    const email = getUsernameEmail(username);
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-    });
-    if (error) throw error;
+  const signUp = async (username: string, password: string, fullName: string, role: string, churchName?: string) => {
+    try {
+      // Insert new user into custom auth table
+      const { data, error } = await supabase
+        .from('auth_users')
+        .insert({
+          username: username.toLowerCase(),
+          password_hash: password,
+          full_name: fullName,
+          role,
+          church_name: churchName || null,
+        })
+        .select()
+        .single();
 
-    if (data.user) {
-      const { error: profileError } = await supabase.from('profiles').insert({
-        id: data.user.id,
-        full_name: fullName,
-        username,
-        role,
-      });
-      if (profileError) throw profileError;
+      if (error) {
+        if (error.message.includes('duplicate')) {
+          throw new Error('اسم المستخدم موجود بالفعل');
+        }
+        throw error;
+      }
+
+      // Auto-login after signup
+      setUser({ id: data.id });
+      setProfile(data);
+      localStorage.setItem('userId', data.id);
+    } catch (err: any) {
+      throw new Error(err.message || 'فشل إنشاء الحساب');
     }
   };
 

@@ -34,7 +34,7 @@ export function useTeachers() {
     queryKey: ['teachers'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('profiles')
+        .from('auth_users')
         .select('*')
         .eq('role', 'teacher')
         .order('full_name');

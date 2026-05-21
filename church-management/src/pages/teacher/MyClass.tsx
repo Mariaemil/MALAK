@@ -4,11 +4,15 @@ import { useStudents, useClasses } from '../../hooks/useData';
 
 export function MyClass() {
   const { user, profile } = useAuth();
-  const { data: students = [] } = useStudents();
+  // Filter students by teacher's assigned class only
+  const { data: students = [] } = useStudents(profile?.class_id);
   const { data: classes = [] } = useClasses();
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
 
-  const teacherClasses = user?.id ? classes : [];
+  // Show only the teacher's assigned class
+  const teacherClasses = profile?.class_id 
+    ? classes.filter((cls: any) => cls.id === profile.class_id)
+    : [];
   
   return (
     <div className="p-8 font-cairo" dir="rtl">
